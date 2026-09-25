@@ -1,0 +1,38 @@
+.title-screen {
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1.5rem;
+  padding: 2rem 1.5rem;
+  text-align: center;
+}
+
+.title-screen h1 {
+  margin: 0;
+  font-size: clamp(2.5rem, 12vw, 4.5rem);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.title-screen .tagline {
+  margin: 0;
+  color: #c9b48a;
+  font-style: italic;
+}
+
+.title-screen button {
+  min-width: 12rem;
+  padding: 0.9rem 1.5rem;
+  font: inherit;
+  font-weight: 600;
+  color: inherit;
+  background: #8c2b1f;
+  border: none;
+  border-radius: 0.5rem;
+}
+
+.title-screen button:disabled {
+  opacity: 0.5;
+}
