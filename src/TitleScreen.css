@@ -32,7 +32,3 @@
   border: none;
   border-radius: 0.5rem;
 }
-
-.title-screen button:disabled {
-  opacity: 0.5;
-}

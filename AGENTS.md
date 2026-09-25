@@ -12,6 +12,11 @@ the design: Vite, React and TypeScript, played in a phone browser. Speed of
 iteration beats code quality. A production stack will be chosen once the game
 is known.
 
+The match simulation lives in `src/sim/`, apart from React and the canvas.
+It advances in fixed steps, and a match replays exactly from its seed. Code
+in `src/sim/` draws every random number from `nextRandom` and never reads
+`Math.random` or the wall clock, or seeded replays and the tests break.
+
 `legacy/` holds the match AI written in Python in 2013: player roles,
 steering, move states, threat assessment and a message bus. It does not run,
 because `legacy/Pitch.py` imports a `Helper` module that is not in the repo.
