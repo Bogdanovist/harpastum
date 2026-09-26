@@ -7,7 +7,7 @@ import {
   type Role,
   type Team,
 } from '../sim/match.ts'
-import { add, type Vec } from '../sim/vec.ts'
+import { add, distance, type Vec } from '../sim/vec.ts'
 
 // The canvas is drawn at this low resolution and scaled up with smoothing
 // off, which gives the 8-bit look. The pitch runs top to bottom so it fills a
@@ -49,6 +49,16 @@ const SPRITES: Record<Role, string[]> = {
     '..tttt..',
     '.s.tt.s.',
     '...dd...',
+    '..t..t..',
+    '..s..s..',
+    '..k..k..',
+  ],
+  back: [
+    '...ss...',
+    '...ss...',
+    '.tdddt..',
+    's.tttt.s',
+    '..tddt..',
     '..t..t..',
     '..s..s..',
     '..k..k..',
@@ -135,20 +145,31 @@ function drawBall(ctx: CanvasRenderingContext2D, match: Match) {
   if (ball.kind === 'carried') {
     at = add(toScreen(match.players[ball.carrierId].pos), { x: 3, y: -4 })
   } else if (ball.kind === 'flying') {
-    // A ball in the air is drawn above its shadow on the grass.
+    // A ball in the air rises and falls on an arc above its shadow, higher
+    // for a longer throw, and is drawn larger so a pass reads at a glance.
+    const total = distance(ball.from, ball.landAt)
+    const progress = total === 0 ? 1 : distance(ball.from, ball.pos) / total
+    const height = Math.round(Math.sin(progress * Math.PI) * (4 + total * 0.8))
     const ground = toScreen(ball.pos)
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.4)'
-    ctx.fillRect(ground.x - 1, ground.y, 3, 1)
-    at = add(ground, { x: 0, y: -5 })
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.45)'
+    ctx.fillRect(ground.x - 2, ground.y, 5, 2)
+    drawBallAt(ctx, add(ground, { x: 0, y: -4 - height }), 2)
+    return
   } else {
     at = toScreen(ball.pos)
   }
-  // A dark outline keeps the ball visible against the grass and the players.
+  drawBallAt(ctx, at, 1)
+}
+
+// A ball of radius r pixels, with a dark outline that keeps it visible
+// against the grass and the players.
+function drawBallAt(ctx: CanvasRenderingContext2D, at: Vec, r: number) {
+  const d = 2 * r + 1
   ctx.fillStyle = PALETTE.k
-  ctx.fillRect(at.x - 2, at.y - 1, 5, 3)
-  ctx.fillRect(at.x - 1, at.y - 2, 3, 5)
+  ctx.fillRect(at.x - r - 1, at.y - r, d + 2, d)
+  ctx.fillRect(at.x - r, at.y - r - 1, d, d + 2)
   ctx.fillStyle = '#e8b870'
-  ctx.fillRect(at.x - 1, at.y - 1, 3, 3)
+  ctx.fillRect(at.x - r, at.y - r, d, d)
   ctx.fillStyle = '#fff0c8'
-  ctx.fillRect(at.x - 1, at.y - 1, 1, 1)
+  ctx.fillRect(at.x - r, at.y - r, r, r)
 }
