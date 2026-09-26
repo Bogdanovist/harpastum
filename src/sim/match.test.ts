@@ -68,4 +68,16 @@ describe('a match', () => {
     for (let t = 0; t < 1 && match.ball.kind === 'flying'; t += STEP_SECONDS) step(match)
     expect(carrier(match)?.team).toBe(holder.team)
   })
+
+  test('a defender pressed against the thrower cannot catch the ball as it leaves the hand', () => {
+    const match = createMatch(5)
+    const thrower = carrier(match)!
+    const defender = match.players.find((p) => p.team !== thrower.team)!
+    for (const p of match.players) if (p !== thrower) p.pos = { x: 10, y: 45 }
+    thrower.pos = { x: 50, y: 25 }
+    defender.pos = { x: 50.5, y: 25 }
+    match.ball = { kind: 'flying', pos: { ...thrower.pos }, from: { ...thrower.pos }, landAt: { x: 60, y: 25 }, throwerId: thrower.id }
+    step(match)
+    expect(match.ball.kind).toBe('flying')
+  })
 })

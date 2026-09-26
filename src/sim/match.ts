@@ -3,9 +3,9 @@ import { add, clampLength, distance, length, normalize, scale, sub, type Vec } f
 
 // Pitch units. x runs the length of the pitch, y its width. Team 0 attacks
 // toward x = PITCH_LENGTH, team 1 toward x = 0.
-export const PITCH_LENGTH = 60
-export const PITCH_WIDTH = 30
-export const END_ZONE_DEPTH = 5
+export const PITCH_LENGTH = 100
+export const PITCH_WIDTH = 50
+export const END_ZONE_DEPTH = 8
 export const STEP_SECONDS = 1 / 20
 export const MATCH_SECONDS = 180
 
@@ -26,16 +26,20 @@ const FIGHT_SECONDS = 1
 const FIGHT_DOWN_SECONDS = 3
 const THROW_SPEED = 16
 const CATCH_RANGE = 0.8
+// Nobody can catch a throw until it has flown this far, so a defender
+// pressed against the carrier cannot snatch it as it leaves the hand.
+const CATCH_FREE_RELEASE = 2
 // A carrier holds the ball this long before it may throw, so a catch is not
 // thrown straight back out.
 const MIN_HOLD_BEFORE_THROW = 1
 // Below this threat the carrier is safe enough to keep running.
 const PASS_THREAT_MIN = 0.08
-const SAFETY_DEPTH = 12
+const SAFETY_DEPTH = 15
+const MARK_TACKLE_RANGE = 8
 const SAFETY_ENGAGE_RANGE = 10
 
 export type Team = 0 | 1
-export type Role = 'brawler' | 'runner' | 'centre'
+export type Role = 'brawler' | 'runner' | 'centre' | 'back'
 
 export interface Player {
   id: number
@@ -57,7 +61,7 @@ export type Ball =
   | { kind: 'carried'; carrierId: number; heldFor: number }
   // A thrown ball flies straight at a fixed speed and lands loose at landAt
   // unless a player catches it on the way.
-  | { kind: 'flying'; pos: Vec; landAt: Vec; throwerId: number }
+  | { kind: 'flying'; pos: Vec; from: Vec; landAt: Vec; throwerId: number }
   // settleFor: seconds before anyone can grab it, so a fumble scatters
   // before the tackler standing over it can pick it straight back up.
   | { kind: 'loose'; pos: Vec; vel: Vec; settleFor: number }
@@ -87,25 +91,38 @@ const ROLE_PROFILES: Record<Role, RoleProfile> = {
   brawler: { speed: 5.5, strength: 8 },
   runner: { speed: 7, strength: 4 },
   centre: { speed: 6.5, strength: 6 },
+  back: { speed: 6.5, strength: 5 },
 }
 
 // Kickoff spots are written for a team attacking toward +x, and mirrored for
 // team 1. The team with the ball lines up on ATTACK_FORMATION.
 const ATTACK_FORMATION: [Role, Vec][] = [
-  ['centre', { x: 29, y: 15 }],
-  ['brawler', { x: 28, y: 11 }],
-  ['brawler', { x: 28, y: 19 }],
-  ['runner', { x: 24, y: 5 }],
-  ['runner', { x: 24, y: 25 }],
+  ['centre', { x: 49, y: 25 }],
+  ['brawler', { x: 47, y: 15 }],
+  ['brawler', { x: 47, y: 20 }],
+  ['brawler', { x: 47, y: 30 }],
+  ['brawler', { x: 47, y: 35 }],
+  ['brawler', { x: 45, y: 25 }],
+  ['runner', { x: 42, y: 6 }],
+  ['runner', { x: 42, y: 44 }],
+  ['runner', { x: 38, y: 25 }],
+  ['back', { x: 32, y: 15 }],
+  ['back', { x: 32, y: 35 }],
 ]
 
 // Kickoff spots for the team without the ball, in ATTACK_FORMATION's order.
 const DEFENCE_FORMATION: Vec[] = [
-  { x: 24, y: 15 },
-  { x: 26, y: 11 },
-  { x: 26, y: 19 },
-  { x: 16, y: 8 },
-  { x: 16, y: 22 },
+  { x: 40, y: 25 },
+  { x: 45, y: 15 },
+  { x: 45, y: 20 },
+  { x: 45, y: 30 },
+  { x: 45, y: 35 },
+  { x: 43, y: 25 },
+  { x: 35, y: 8 },
+  { x: 35, y: 42 },
+  { x: 33, y: 25 },
+  { x: 22, y: 15 },
+  { x: 22, y: 35 },
 ]
 
 export const attackDirection = (team: Team): number => (team === 0 ? 1 : -1)
@@ -254,17 +271,16 @@ function chooseTarget(match: Match, p: Player): { target: Vec; sprint: boolean }
     if (p.role === 'runner') return { target: openSpace(match, p, holder), sprint: false }
     return { target: holdBehind(p, holder.pos), sprint: false }
   }
-  if (p.role === 'brawler') {
-    const brawler = nearest(
-      p.pos,
-      match.players.filter((o) => o.team !== p.team && o.role === 'brawler' && isFree(o) && o !== holder),
-    )
-    if (brawler) return { target: brawler.pos, sprint: true }
-  }
-  if (p.role === 'runner') {
+  if (p.role === 'back') {
     const safetySpot = safetyTarget(p, holder)
     if (safetySpot) return { target: safetySpot, sprint: false }
   }
+  if (p.role === 'runner' && distance(p.pos, holder.pos) > MARK_TACKLE_RANGE) {
+    const mark = markTarget(match, p)
+    if (mark) return { target: mark, sprint: true }
+  }
+  // Brawlers and the centre go for the carrier. The opposing line blocks the
+  // way, so a brawler's run at the carrier becomes a push through the line.
   return { target: interceptCarrier(p, holder), sprint: true }
 }
 
@@ -303,8 +319,8 @@ function openSpace(match: Match, p: Player, holder: Player): Vec {
   const lane = toTeamFrame(p.team, p.formation).y
   let best: Vec | undefined
   let bestThreat = Infinity
-  for (const dy of [-6, 0, 6]) {
-    const spot = keepOnPitch({ x: holder.pos.x + forward * 9, y: lane + dy })
+  for (const dy of [-8, 0, 8]) {
+    const spot = keepOnPitch({ x: holder.pos.x + forward * 12, y: lane + dy })
     const threat = threatAt(match, p.team, spot)
     if (threat < bestThreat) {
       best = spot
@@ -325,6 +341,16 @@ function safetyTarget(p: Player, holder: Player): Vec | undefined {
   const x = forward > 0 ? Math.min(deepest, holder.pos.x - 2) : Math.max(deepest, holder.pos.x + 2)
   const lane = toTeamFrame(p.team, p.formation).y
   return keepOnPitch({ x, y: (lane + holder.pos.y) / 2 })
+}
+
+// Stand goal-side of the nearest opposing runner, to cut out a pass to it.
+function markTarget(match: Match, p: Player): Vec | undefined {
+  const receiver = nearest(
+    p.pos,
+    match.players.filter((o) => o.team !== p.team && o.role === 'runner' && o.downFor === 0),
+  )
+  if (!receiver) return undefined
+  return keepOnPitch({ x: receiver.pos.x - attackDirection(p.team) * 2, y: receiver.pos.y })
 }
 
 function nearest(from: Vec, players: Player[]): Player | undefined {
@@ -443,6 +469,7 @@ function catchFlyingBall(match: Match) {
     ball.pos,
     match.players.filter((p) => p.id !== ball.throwerId && isFree(p) && distance(p.pos, ball.pos) < CATCH_RANGE),
   )
+  if (distance(ball.pos, ball.from) < CATCH_FREE_RELEASE) return
   if (catcher) match.ball = { kind: 'carried', carrierId: catcher.id, heldFor: 0 }
 }
 
@@ -489,8 +516,8 @@ function threatAt(match: Match, team: Team, at: Vec): number {
   return worst
 }
 
-// The carrier throws to the least threatened free runner when that runner
-// is much safer than the carrier. The throw leads the runner.
+// The carrier throws to the least threatened free runner or back when that
+// player is much safer than the carrier. The throw leads the receiver.
 function throwIfThreatened(match: Match) {
   const { ball } = match
   if (ball.kind !== 'carried' || ball.heldFor < MIN_HOLD_BEFORE_THROW) return
@@ -501,7 +528,8 @@ function throwIfThreatened(match: Match) {
   let receiver: Player | undefined
   let receiverThreat = Infinity
   for (const p of match.players) {
-    if (p.team !== holder.team || p === holder || p.role !== 'runner' || !isFree(p)) continue
+    if (p.team !== holder.team || p === holder || !isFree(p)) continue
+    if (p.role !== 'runner' && p.role !== 'back') continue
     const threat = threatAt(match, p.team, p.pos)
     if (threat < receiverThreat) {
       receiver = p
@@ -511,5 +539,5 @@ function throwIfThreatened(match: Match) {
   if (!receiver || receiverThreat * 2 > ownThreat) return
   const flightSeconds = distance(holder.pos, receiver.pos) / THROW_SPEED
   const landAt = keepOnPitch(add(receiver.pos, scale(receiver.vel, flightSeconds)))
-  match.ball = { kind: 'flying', pos: { ...holder.pos }, landAt, throwerId: holder.id }
+  match.ball = { kind: 'flying', pos: { ...holder.pos }, from: { ...holder.pos }, landAt, throwerId: holder.id }
 }
