@@ -22,8 +22,18 @@ const FUMBLE_SETTLE_SECONDS = 0.4
 const BALL_FRICTION_PER_STEP = 0.9
 const LOOSE_BALL_CHASERS_PER_TEAM = 2
 const CARRIER_THREAT_RANGE = 10
-const FIGHT_SECONDS = 1
-const FIGHT_DOWN_SECONDS = 3
+// A shoving pair moves at most this fast, toward whichever side is winning.
+const SHOVE_SPEED = 5
+// Balance a player loses per unit of ground it gives, and regains per unit
+// it takes. A player whose balance runs out falls.
+const BALANCE_LOST_PER_UNIT = 0.6
+const BALANCE_REGAINED_PER_UNIT = 0.3
+const SHOVE_FALL_DOWN_SECONDS = 3
+// A defender that drives its blocker back this far breaks free.
+const BREAK_THROUGH_GROUND = 1
+// Seconds after a break-through before either player can lock again, or the
+// pair would relock at once.
+const RELOCK_SECONDS = 1
 const THROW_SPEED = 16
 const CATCH_RANGE = 0.8
 // Nobody can catch a throw until it has flown this far, so a defender
@@ -54,8 +64,12 @@ export interface Player {
   strength: number
   // Seconds left lying on the ground. Zero means standing.
   downFor: number
-  // The opponent this player is locked in a fight with, if any.
-  fight: { opponentId: number; endsIn: number } | undefined
+  // The shoving contest this player is locked in, if any. balance runs from
+  // 1 down to 0, when the player falls. gained is the net ground this player
+  // has driven its opponent back.
+  shove: { opponentId: number; balance: number; gained: number } | undefined
+  // Seconds before this player can lock into a new shoving contest.
+  relockIn: number
 }
 
 export type Ball =
@@ -151,7 +165,8 @@ export function createMatch(seed: number): Match {
         speed: profile.speed * (0.9 + 0.2 * nextRandom(match)),
         strength: profile.strength * (0.9 + 0.2 * nextRandom(match)),
         downFor: 0,
-        fight: undefined,
+        shove: undefined,
+        relockIn: 0,
       })
     })
   }
@@ -170,7 +185,8 @@ function kickOff(match: Match, receiving: Team) {
       p.pos = toTeamFrame(team, team === receiving ? p.formation : DEFENCE_FORMATION[i])
       p.vel = { x: 0, y: 0 }
       p.downFor = 0
-      p.fight = undefined
+      p.shove = undefined
+      p.relockIn = 0
     })
   }
   const centre = match.players.find((p) => p.team === receiving && p.role === 'centre')!
@@ -209,8 +225,8 @@ export function step(match: Match) {
   for (const p of match.players) movePlayer(match, p)
   separatePlayers(match)
   moveBall(match)
-  resolveFights(match)
-  startFights(match)
+  resolveShoves(match)
+  startShoves(match)
   resolveTackle(match)
   pickUpLooseBall(match)
   catchFlyingBall(match)
@@ -226,7 +242,7 @@ export function step(match: Match) {
 }
 
 // A player who can run, tackle, catch and pick up the ball.
-const isFree = (p: Player) => p.downFor === 0 && !p.fight
+const isFree = (p: Player) => p.downFor === 0 && !p.shove
 
 function movePlayer(match: Match, p: Player) {
   if (p.downFor > 0) {
@@ -234,7 +250,8 @@ function movePlayer(match: Match, p: Player) {
     p.vel = { x: 0, y: 0 }
     return
   }
-  if (p.fight) {
+  p.relockIn = Math.max(0, p.relockIn - STEP_SECONDS)
+  if (p.shove) {
     p.vel = { x: 0, y: 0 }
     return
   }
@@ -297,7 +314,7 @@ function holdBehind(p: Player, ball: Vec): Vec {
   return keepOnPitch({ x: ball.x - attackDirection(p.team) * 5, y: lane })
 }
 
-// Run at the nearest free opponent ahead of the carrier, to fight it out of
+// Run at the nearest free opponent ahead of the carrier, to shove it out of
 // the carrier's way. With nobody ahead, lead the carrier upfield.
 function blockFor(match: Match, p: Player, holder: Player): { target: Vec; sprint: boolean } {
   const forward = attackDirection(p.team)
@@ -474,30 +491,54 @@ function catchFlyingBall(match: Match) {
   if (catcher) match.ball = { kind: 'carried', carrierId: catcher.id, heldFor: 0 }
 }
 
-// A brawler who reaches an opponent without the ball locks it in a fight.
-function startFights(match: Match) {
+// A brawler who reaches an opponent without the ball locks it in a shoving
+// contest.
+function startShoves(match: Match) {
   const holder = carrier(match)
+  const canLock = (p: Player) => p !== holder && isFree(p) && p.relockIn === 0
   for (const p of match.players) {
-    if (p.role !== 'brawler' || p === holder || !isFree(p)) continue
+    if (p.role !== 'brawler' || !canLock(p)) continue
     const opponent = match.players.find(
-      (o) => o.team !== p.team && o !== holder && isFree(o) && distance(o.pos, p.pos) < CONTACT_RANGE,
+      (o) => o.team !== p.team && canLock(o) && distance(o.pos, p.pos) < CONTACT_RANGE,
     )
     if (!opponent) continue
-    p.fight = { opponentId: opponent.id, endsIn: FIGHT_SECONDS }
-    opponent.fight = { opponentId: p.id, endsIn: FIGHT_SECONDS }
+    p.shove = { opponentId: opponent.id, balance: 1, gained: 0 }
+    opponent.shove = { opponentId: p.id, balance: 1, gained: 0 }
   }
 }
 
-function resolveFights(match: Match) {
-  for (const p of match.players) {
-    if (!p.fight || p.id > p.fight.opponentId) continue
-    const opponent = match.players[p.fight.opponentId]
-    p.fight.endsIn -= STEP_SECONDS
-    if (p.fight.endsIn > 0) continue
-    const loser = winsContest(match, p, opponent) ? opponent : p
-    loser.downFor = FIGHT_DOWN_SECONDS
-    p.fight = undefined
-    opponent.fight = undefined
+// Each step, strength weighted by chance decides which of a locked pair
+// gains ground, and the pair moves together that way. The loser of ground
+// loses balance, and falls when it runs out. A defender that drives its
+// blocker far enough back breaks free.
+function resolveShoves(match: Match) {
+  const holder = carrier(match)
+  for (const a of match.players) {
+    if (!a.shove || a.id > a.shove.opponentId) continue
+    const b = match.players[a.shove.opponentId]
+    const aShove = a.shove
+    const bShove = b.shove!
+    const push = [a.strength * (0.5 + nextRandom(match)), b.strength * (0.5 + nextRandom(match))]
+    // Positive moves the pair toward b: a is winning ground.
+    const moved = ((push[0] - push[1]) / (push[0] + push[1])) * SHOVE_SPEED * STEP_SECONDS
+    const axis = distance(a.pos, b.pos) > 0 ? normalize(sub(b.pos, a.pos)) : { x: 1, y: 0 }
+    a.pos = keepOnPitch(add(a.pos, scale(axis, moved)))
+    b.pos = keepOnPitch(add(b.pos, scale(axis, moved)))
+    const [winner, loser] = moved >= 0 ? [aShove, bShove] : [bShove, aShove]
+    const ground = Math.abs(moved)
+    winner.gained += ground
+    loser.gained -= ground
+    winner.balance = Math.min(1, winner.balance + ground * BALANCE_REGAINED_PER_UNIT)
+    loser.balance -= ground * BALANCE_LOST_PER_UNIT
+
+    const faller = aShove.balance <= 0 ? a : bShove.balance <= 0 ? b : undefined
+    const defender = holder ? [a, b].find((p) => p.team !== holder.team) : undefined
+    const breaksThrough = defender !== undefined && defender.shove!.gained >= BREAK_THROUGH_GROUND
+    if (!faller && !breaksThrough) continue
+    if (faller) faller.downFor = SHOVE_FALL_DOWN_SECONDS
+    else a.relockIn = b.relockIn = RELOCK_SECONDS
+    a.shove = undefined
+    b.shove = undefined
   }
 }
 
