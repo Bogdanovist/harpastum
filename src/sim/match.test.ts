@@ -54,19 +54,36 @@ describe('a match', () => {
     expect(brawler.downFor > 0 || opponent.downFor > 0).toBe(true)
   })
 
-  test('a threatened carrier throws to a free runner, who catches it', () => {
+  test('a carrier facing a wall of defenders throws forward to an open runner, who catches it', () => {
     const match = createMatch(5)
     const holder = carrier(match)!
     const runner = match.players.find((p) => p.team === holder.team && p.role === 'runner')!
-    for (const p of match.players) {
-      if (p.team !== holder.team) p.pos = { x: holder.pos.x + 2, y: holder.pos.y }
-    }
-    runner.pos = { x: holder.pos.x, y: holder.pos.y + 10 }
+    for (const p of match.players) p.pos = { x: 10, y: p.team === holder.team ? 2 : 48 }
+    holder.pos = { x: 50, y: 25 }
+    for (const p of match.players) if (p.team !== holder.team) p.pos = { x: 55, y: 25 }
+    runner.pos = { x: 65, y: 45 }
     if (match.ball.kind === 'carried') match.ball.heldFor = 5
     step(match)
     expect(match.ball.kind).toBe('flying')
-    for (let t = 0; t < 1 && match.ball.kind === 'flying'; t += STEP_SECONDS) step(match)
-    expect(carrier(match)?.team).toBe(holder.team)
+    for (let t = 0; t < 2 && match.ball.kind === 'flying'; t += STEP_SECONDS) step(match)
+    expect(carrier(match)).toBe(runner)
+  })
+
+  test('a carrier with a clear run to the line keeps the ball, even with a chaser close behind', () => {
+    const match = createMatch(5)
+    const holder = carrier(match)!
+    const back = match.players.find((p) => p.team === holder.team && p.role === 'back')!
+    for (const p of match.players) p.pos = { x: 50, y: p.team === holder.team ? 2 : 48 }
+    holder.pos = { x: 80, y: 25 }
+    back.pos = { x: 70, y: 25 }
+    // A slower chaser just behind the carrier can never catch it.
+    const chaser = match.players.find((p) => p.team !== holder.team)!
+    chaser.pos = { x: 78, y: 26 }
+    chaser.speed = 4
+    holder.speed = 7
+    if (match.ball.kind === 'carried') match.ball.heldFor = 5
+    step(match)
+    expect(carrier(match)).toBe(holder)
   })
 
   test('a defender pressed against the thrower cannot catch the ball as it leaves the hand', () => {

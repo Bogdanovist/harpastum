@@ -32,8 +32,9 @@ const CATCH_FREE_RELEASE = 2
 // A carrier holds the ball this long before it may throw, so a catch is not
 // thrown straight back out.
 const MIN_HOLD_BEFORE_THROW = 1
-// Below this threat the carrier is safe enough to keep running.
-const PASS_THREAT_MIN = 0.08
+// A throw risks a bad catch, so it must leave at least this many fewer
+// units to cover than running on.
+const PASS_GAIN_MIN = 5
 const SAFETY_DEPTH = 15
 const MARK_TACKLE_RANGE = 8
 const SAFETY_ENGAGE_RANGE = 10
@@ -213,7 +214,7 @@ export function step(match: Match) {
   resolveTackle(match)
   pickUpLooseBall(match)
   catchFlyingBall(match)
-  throwIfThreatened(match)
+  throwIfBetterPlaced(match)
 
   const holder = carrier(match)
   if (holder && holder.downFor === 0 && inScoringZone(holder)) {
@@ -516,28 +517,81 @@ function threatAt(match: Match, team: Team, at: Vec): number {
   return worst
 }
 
-// The carrier throws to the least threatened free runner or back when that
-// player is much safer than the carrier. The throw leads the receiver.
-function throwIfThreatened(match: Match) {
+// Units a player still has to cover after running straight for the line
+// from `from` until the first free opponent can reach it. Zero means a clear
+// run to score. Opponents get `headStart` seconds to close in first, which is
+// the flight time when the player is waiting on a throw.
+function groundLeft(match: Match, team: Team, from: Vec, speed: number, headStart: number): number {
+  const toLine = team === 0 ? PITCH_LENGTH - END_ZONE_DEPTH - from.x : from.x - END_ZONE_DEPTH
+  if (toLine <= 0) return 0
+  const run: Vec = { x: attackDirection(team) * speed, y: 0 }
+  let contact = Infinity
+  for (const o of match.players) {
+    if (o.team === team || !isFree(o)) continue
+    contact = Math.min(contact, catchUpTime(sub(from, o.pos), run, o.speed, headStart))
+  }
+  return Math.max(0, toLine - speed * contact)
+}
+
+// Earliest t >= 0 at which a chaser of speed `chaserSpeed`, starting at the
+// origin with `headStart` seconds of running, can reach a runner at `offset`
+// moving with velocity `run`: the least t with
+// |offset + run·t| <= chaserSpeed·(t + headStart). Infinity if never.
+function catchUpTime(offset: Vec, run: Vec, chaserSpeed: number, headStart: number): number {
+  const f = (t: number) =>
+    (offset.x + run.x * t) ** 2 + (offset.y + run.y * t) ** 2 - (chaserSpeed * (t + headStart)) ** 2
+  if (f(0) <= 0) return 0
+  const s2 = chaserSpeed * chaserSpeed
+  const a = run.x * run.x + run.y * run.y - s2
+  const b = 2 * (offset.x * run.x + offset.y * run.y - s2 * headStart)
+  const c = f(0)
+  if (Math.abs(a) < 1e-9) return b < 0 ? -c / b : Infinity
+  const disc = b * b - 4 * a * c
+  if (disc < 0) return Infinity
+  const roots = [(-b - Math.sqrt(disc)) / (2 * a), (-b + Math.sqrt(disc)) / (2 * a)].sort((m, n) => m - n)
+  // f(0) > 0 here. A faster chaser (a < 0) always closes in, at the larger
+  // root. A slower one (a > 0) is close enough only between the roots.
+  if (a < 0) return roots[1]
+  return roots[0] >= 0 ? roots[0] : Infinity
+}
+
+// True if a free opponent can reach the ball's path before the ball passes.
+function laneIsCovered(match: Match, team: Team, from: Vec, to: Vec): boolean {
+  const length = distance(from, to)
+  const along = normalize(sub(to, from))
+  for (let d = CATCH_FREE_RELEASE; d <= length; d += 1) {
+    const point = add(from, scale(along, d))
+    const arrives = d / THROW_SPEED
+    for (const o of match.players) {
+      if (o.team === team || !isFree(o)) continue
+      if (distance(o.pos, point) - CATCH_RANGE <= o.speed * arrives) return true
+    }
+  }
+  return false
+}
+
+// The carrier throws when a free runner or back, at the spot the throw would
+// land, is left much less ground to cover than the carrier running on, and
+// no opponent can cut out the throw. The throw leads the receiver.
+function throwIfBetterPlaced(match: Match) {
   const { ball } = match
   if (ball.kind !== 'carried' || ball.heldFor < MIN_HOLD_BEFORE_THROW) return
   const holder = match.players[ball.carrierId]
   if (!isFree(holder)) return
-  const ownThreat = threatAt(match, holder.team, holder.pos)
-  if (ownThreat < PASS_THREAT_MIN) return
-  let receiver: Player | undefined
-  let receiverThreat = Infinity
+  const runSpeed = (p: Player) => p.speed * CARRIER_SPEED_FACTOR
+  const ownLeft = groundLeft(match, holder.team, holder.pos, runSpeed(holder), 0)
+  if (ownLeft === 0) return
+  let best: { landAt: Vec; left: number } | undefined
   for (const p of match.players) {
     if (p.team !== holder.team || p === holder || !isFree(p)) continue
     if (p.role !== 'runner' && p.role !== 'back') continue
-    const threat = threatAt(match, p.team, p.pos)
-    if (threat < receiverThreat) {
-      receiver = p
-      receiverThreat = threat
-    }
+    const flightSeconds = distance(holder.pos, p.pos) / THROW_SPEED
+    const landAt = keepOnPitch(add(p.pos, scale(p.vel, flightSeconds)))
+    const left = groundLeft(match, p.team, landAt, runSpeed(p), flightSeconds)
+    if (left + PASS_GAIN_MIN > ownLeft || (best && left >= best.left)) continue
+    if (laneIsCovered(match, holder.team, holder.pos, landAt)) continue
+    best = { landAt, left }
   }
-  if (!receiver || receiverThreat * 2 > ownThreat) return
-  const flightSeconds = distance(holder.pos, receiver.pos) / THROW_SPEED
-  const landAt = keepOnPitch(add(receiver.pos, scale(receiver.vel, flightSeconds)))
-  match.ball = { kind: 'flying', pos: { ...holder.pos }, from: { ...holder.pos }, landAt, throwerId: holder.id }
+  if (!best) return
+  match.ball = { kind: 'flying', pos: { ...holder.pos }, from: { ...holder.pos }, landAt: best.landAt, throwerId: holder.id }
 }
