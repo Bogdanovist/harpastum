@@ -48,22 +48,25 @@ nobody can pick it up for a moment. *Currently:* `resolveTackle` and
 act. *Currently:* `Player.downFor` in `src/sim/match.ts`.
 
 **Fight** — a short locked bout between two opposing players away from the
-ball, which ends with the loser knocked down.
+ball, which ends with the loser knocked down. *Currently:* `startFights`,
+`resolveFights` and `Player.fight` in `src/sim/match.ts`.
 
 **Pass** — a throw by the carrier in any direction, which a player of either
-team may catch.
+team may catch. *Currently:* `throwIfThreatened`, `catchFlyingBall` and the
+`flying` ball in `src/sim/match.ts`.
 
 **Role** — a player's job on the team: brawler (fights and blocks), runner
 (pass target, and deep safety on defence) or centre (starts with the ball;
 linebacker on defence). *Currently:* `Role` and `ROLE_PROFILES` in
-`src/sim/match.ts` set speed, strength and kickoff spot only.
+`src/sim/match.ts`.
 
 **Role table** — for each role, the behaviour to follow in each state of the
 ball: loose, in the air, carried by own team, carried by the opponent.
+*Currently:* `chooseTarget` in `src/sim/match.ts`.
 
 **Threat score** — how badly opponents endanger a player, used by the carrier
-to decide whether to pass. *Currently:* the 2013 Python in
-`legacy/Threat.py`, as a reference only.
+to decide whether to pass. *Currently:* `threatAt` in `src/sim/match.ts`,
+adapted from `legacy/Threat.py`.
 
 **Legacy match AI** — the 2013 Python attempt at the match simulation, kept
 unchanged as a design reference. It does not run. *Currently:* `legacy/`.

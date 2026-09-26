@@ -147,8 +147,7 @@ Each slice is one PR in a worktree, shown on the phone before it merges.
   fumbles, which Matt judged acceptable for a proof of concept. The red end
   zone renders olive, because its tint blends with the grass. Matt will
   tune the match in a later session.
-- 2026-09-26: slice 2 raised as Bogdanovist/harpastum#4, not yet merged.
+- 2026-09-26: slice 2 merged as Bogdanovist/harpastum#4 (`8af59f2`).
   Across seeds 1–10 a match has 61 to 70 throws, of which 20 to 35 are
   intercepted, 67 to 82 fights, and 12 to 31 fumbles. The end zones are now
-  opaque, so the red one reads red. When it merges, point the glossary's
-  Fight, Pass, Role table and Threat score entries at `src/sim/match.ts`.
+  opaque, so the red one reads red.
