@@ -186,3 +186,13 @@ Each slice is one PR in a worktree, shown on the phone before it merges.
   throws, of which about 29% are intercepted (about 40% in slice 2). Runners
   on defence mark the nearest opposing runner goal-side; the table's
   runner row records that.
+- 2026-09-26: Matt saw the 11-a-side build and found that carriers passed
+  to worse-placed players. The throw decision compared danger only, so 72%
+  of throws went backward. PR #5 now compares the ground each option leaves
+  to cover before an opponent can reach it. Across seeds 1–10 that gives 163
+  throws (was 665), 5 backward and 13 intercepted, and scores of 2–9 per
+  team.
+- 2026-09-26: slice 4 raised as Bogdanovist/harpastum#6, stacked on #5.
+  A contest lasts 3.0 s at the median and moves the pair 1.0 unit; about a
+  quarter end in a break-through. On merge, rename the glossary's Fight
+  entry to Shoving contest and point it at `resolveShoves`.
