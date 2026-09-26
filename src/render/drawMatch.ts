@@ -17,9 +17,11 @@ const MARGIN = 6
 export const CANVAS_WIDTH = PITCH_WIDTH * PIXELS_PER_UNIT + MARGIN * 2
 export const CANVAS_HEIGHT = PITCH_LENGTH * PIXELS_PER_UNIT + MARGIN * 2
 
-const TEAM_COLOURS: Record<Team, { main: string; dark: string }> = {
-  0: { main: '#c8402e', dark: '#7a2319' },
-  1: { main: '#3a68c8', dark: '#213e7a' },
+// zone: the end-zone fill. It is opaque, because a translucent red over the
+// green grass reads as olive.
+const TEAM_COLOURS: Record<Team, { main: string; dark: string; zone: string }> = {
+  0: { main: '#c8402e', dark: '#7a2319', zone: '#8c3a2c' },
+  1: { main: '#3a68c8', dark: '#213e7a', zone: '#34508a' },
 }
 
 const PALETTE: Record<string, string> = {
@@ -73,7 +75,9 @@ function toScreen(pos: Vec): Vec {
 export function drawMatch(ctx: CanvasRenderingContext2D, match: Match) {
   drawPitch(ctx)
   const byDepth = [...match.players].sort((a, b) => toScreen(a.pos).y - toScreen(b.pos).y)
-  for (const p of byDepth) drawPlayer(ctx, p)
+  // Fighters shake from side to side, in turn, four times a second.
+  const shake = Math.floor(match.clock * 8) % 2 === 0 ? 1 : -1
+  for (const p of byDepth) drawPlayer(ctx, p, p.fight ? shake * (p.team === 0 ? 1 : -1) : 0)
   drawBall(ctx, match)
 }
 
@@ -89,12 +93,10 @@ function drawPitch(ctx: CanvasRenderingContext2D) {
   // Each end zone is tinted with the colour of the team that defends it.
   const depth = END_ZONE_DEPTH * PIXELS_PER_UNIT
   const width = PITCH_WIDTH * PIXELS_PER_UNIT
-  ctx.globalAlpha = 0.35
-  ctx.fillStyle = TEAM_COLOURS[1].main
+  ctx.fillStyle = TEAM_COLOURS[1].zone
   ctx.fillRect(MARGIN, MARGIN, width, depth)
-  ctx.fillStyle = TEAM_COLOURS[0].main
+  ctx.fillStyle = TEAM_COLOURS[0].zone
   ctx.fillRect(MARGIN, CANVAS_HEIGHT - MARGIN - depth, width, depth)
-  ctx.globalAlpha = 1
 
   ctx.fillStyle = '#e8e0c8'
   for (const x of [END_ZONE_DEPTH, PITCH_LENGTH / 2, PITCH_LENGTH - END_ZONE_DEPTH]) {
@@ -105,14 +107,14 @@ function drawPitch(ctx: CanvasRenderingContext2D) {
   ctx.strokeRect(MARGIN - 0.5, MARGIN - 0.5, width + 1, PITCH_LENGTH * PIXELS_PER_UNIT + 1)
 }
 
-function drawPlayer(ctx: CanvasRenderingContext2D, p: Player) {
+function drawPlayer(ctx: CanvasRenderingContext2D, p: Player, shiftX: number) {
   const sprite = SPRITES[p.role]
   const colours: Record<string, string> = {
     ...PALETTE,
     t: TEAM_COLOURS[p.team].main,
     d: TEAM_COLOURS[p.team].dark,
   }
-  const feet = toScreen(p.pos)
+  const feet = add(toScreen(p.pos), { x: shiftX, y: 0 })
   const down = p.downFor > 0
   for (let row = 0; row < 8; row++) {
     for (let col = 0; col < 8; col++) {
@@ -129,10 +131,18 @@ function drawPlayer(ctx: CanvasRenderingContext2D, p: Player) {
 
 function drawBall(ctx: CanvasRenderingContext2D, match: Match) {
   const { ball } = match
-  const at =
-    ball.kind === 'carried'
-      ? add(toScreen(match.players[ball.carrierId].pos), { x: 3, y: -4 })
-      : toScreen(ball.pos)
+  let at: Vec
+  if (ball.kind === 'carried') {
+    at = add(toScreen(match.players[ball.carrierId].pos), { x: 3, y: -4 })
+  } else if (ball.kind === 'flying') {
+    // A ball in the air is drawn above its shadow on the grass.
+    const ground = toScreen(ball.pos)
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.4)'
+    ctx.fillRect(ground.x - 1, ground.y, 3, 1)
+    at = add(ground, { x: 0, y: -5 })
+  } else {
+    at = toScreen(ball.pos)
+  }
   // A dark outline keeps the ball visible against the grass and the players.
   ctx.fillStyle = PALETTE.k
   ctx.fillRect(at.x - 2, at.y - 1, 5, 3)
