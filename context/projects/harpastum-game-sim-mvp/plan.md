@@ -181,3 +181,8 @@ Each slice is one PR in a worktree, shown on the phone before it merges.
   Across seeds 1–10 a match has 61 to 70 throws, of which 20 to 35 are
   intercepted, 67 to 82 fights, and 12 to 31 fumbles. The end zones are now
   opaque, so the red one reads red.
+- 2026-09-26: slice 3 raised as Bogdanovist/harpastum#5, not yet merged.
+  Across seeds 1–10 a match has 0 to 4 scores per team and 61 to 73
+  throws, of which about 29% are intercepted (about 40% in slice 2). Runners
+  on defence mark the nearest opposing runner goal-side; the table's
+  runner row records that.
