@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { carrier, createMatch, MATCH_SECONDS, step, STEP_SECONDS, type Match } from './match.ts'
+import { carrier, createMatch, MATCH_SECONDS, step, STEP_SECONDS, type Match, type Player } from './match.ts'
 
 function playToEnd(match: Match): Match {
   while (match.phase.kind !== 'ended') step(match)
@@ -39,19 +39,51 @@ describe('a match', () => {
     expect(match.ball.kind === 'loose' || carrier(match) !== holder).toBe(true)
   })
 
-  test('a brawler who reaches an opponent off the ball fights it, and the loser goes down', () => {
-    const match = createMatch(3)
+  // Puts a brawler of the carrier's team and an opposing brawler in contact
+  // away from the ball, with everyone else out of the way.
+  function lockedPair(seed: number): { match: Match; blocker: Player; defender: Player } {
+    const match = createMatch(seed)
     const holder = carrier(match)!
-    const brawler = match.players.find((p) => p.team === holder.team && p.role === 'brawler')!
-    const opponent = match.players.find((p) => p.team !== holder.team && p.role === 'runner')!
-    brawler.pos = { x: 40, y: 5 }
-    opponent.pos = { x: 40.5, y: 5 }
+    const blocker = match.players.find((p) => p.team === holder.team && p.role === 'brawler')!
+    const defender = match.players.find((p) => p.team !== holder.team && p.role === 'brawler')!
+    for (const p of match.players) p.pos = { x: 10, y: p.team === holder.team ? 2 : 48 }
+    holder.pos = { x: 20, y: 25 }
+    blocker.pos = { x: 60, y: 25 }
+    defender.pos = { x: 60.5, y: 25 }
     step(match)
-    expect(brawler.fight?.opponentId).toBe(opponent.id)
-    expect(opponent.fight?.opponentId).toBe(brawler.id)
-    for (let t = 0; t < 1.2; t += STEP_SECONDS) step(match)
-    expect(brawler.fight).toBeUndefined()
-    expect(brawler.downFor > 0 || opponent.downFor > 0).toBe(true)
+    return { match, blocker, defender }
+  }
+
+  test('a shoving contest moves the pair back and forth until one falls or breaks free', () => {
+    const { match, blocker, defender } = lockedPair(3)
+    expect(blocker.shove?.opponentId).toBe(defender.id)
+    expect(defender.shove?.opponentId).toBe(blocker.id)
+    const start = blocker.pos.x
+    let furthest = 0
+    for (let t = 0; t < 20 && blocker.shove; t += STEP_SECONDS) {
+      step(match)
+      furthest = Math.max(furthest, Math.abs(blocker.pos.x - start))
+    }
+    expect(blocker.shove).toBeUndefined()
+    expect(furthest).toBeGreaterThan(0.3)
+    expect(blocker.downFor > 0 || defender.downFor > 0 || blocker.relockIn > 0).toBe(true)
+  })
+
+  test('a defender that drives its blocker back breaks free, and nobody falls', () => {
+    const { match, blocker, defender } = lockedPair(3)
+    defender.strength = 1e6
+    for (let t = 0; t < 5 && defender.shove; t += STEP_SECONDS) step(match)
+    expect(defender.shove).toBeUndefined()
+    expect(blocker.downFor).toBe(0)
+    expect(defender.relockIn).toBeGreaterThan(0)
+  })
+
+  test('a blocker that drives its defender back knocks it down', () => {
+    const { match, blocker, defender } = lockedPair(3)
+    blocker.strength = 1e6
+    for (let t = 0; t < 5 && blocker.shove; t += STEP_SECONDS) step(match)
+    expect(blocker.shove).toBeUndefined()
+    expect(defender.downFor).toBeGreaterThan(0)
   })
 
   test('a carrier facing a wall of defenders throws forward to an open runner, who catches it', () => {

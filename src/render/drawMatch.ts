@@ -85,9 +85,10 @@ function toScreen(pos: Vec): Vec {
 export function drawMatch(ctx: CanvasRenderingContext2D, match: Match) {
   drawPitch(ctx)
   const byDepth = [...match.players].sort((a, b) => toScreen(a.pos).y - toScreen(b.pos).y)
-  // Fighters shake from side to side, in turn, four times a second.
+  // Players locked in a shoving contest shake from side to side, in turn,
+  // four times a second.
   const shake = Math.floor(match.clock * 8) % 2 === 0 ? 1 : -1
-  for (const p of byDepth) drawPlayer(ctx, p, p.fight ? shake * (p.team === 0 ? 1 : -1) : 0)
+  for (const p of byDepth) drawPlayer(ctx, p, p.shove ? shake * (p.team === 0 ? 1 : -1) : 0)
   drawBall(ctx, match)
 }
 
