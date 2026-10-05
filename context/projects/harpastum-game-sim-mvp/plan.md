@@ -17,20 +17,56 @@ tackle, block or fight any opponent at any time, with or without the ball.
 
 This project ends when Matt opens `http://matt-human:5174` on his phone and
 watches an 11-a-side match play itself out: players run, pass, tackle and
-fight, teams score, and the match ends on a clock. The graphics are
+shove, teams score, and the match ends on a clock. The graphics are
 placeholder 8-bit pixel art.
 
-## What exists (measured 2026-09-25)
+## Resume here (2026-10-05)
 
-- The `harpastum` repo serves a stub title screen (`src/TitleScreen.tsx`)
-  with Vite, React and TypeScript. The archived plan
-  `projects/archive/harpastum-mvp/plan.md` in the Flux repo, at Flux commit
-  `63a897d`, records that setup.
-- `legacy/` holds the 2013 Python match AI, which does not run. It gives
-  each role a table that maps the ball's state (loose, flying, carried, own
-  team attacking, own team defending) to a behaviour. The ball carrier
-  passes when the nearest threat to it is worse than the threat to its best
-  receiver (`legacy/Player.py`, `legacy/Threat.py`). The pitch is 100 × 50.
+Slices 1–4 are merged to `main` (`5075d15`). No PRs are open, and no
+worktree or dev server is left running. `npm test` (11 tests), `npm run
+build` and `npm run lint` pass on `main`.
+
+On `main`, an 11-a-side match on the 100 × 50 pitch:
+
+- Across seeds 1–10, scores run 1–10 per team.
+- Each match has about 100 shoving contests. The median contest lasts
+  3.0 s and moves the pair 1.0 unit. About a quarter end in a
+  break-through.
+- Across all ten matches there are 163 throws: 11 go backward and 12 are
+  intercepted. The median throw is 9 units long.
+
+Every player decision is still a fixed rule. Chance enters only in tackles,
+shoving contests and fumble directions.
+
+**Next: slice 5, players decide alone from the game state.** Decision 8
+fixes its shape: no team-level job assignment, and seeded random
+tendencies per player. The details are not yet designed: which possession
+states a player reads, which tendencies a player carries, and how a
+defender chooses to stay deep. Play these back to Matt and get them
+approved before building. Matt's observations that slice 5 must answer:
+
+- Safeties and linebackers do not drop back far enough, so carriers break
+  straight through the defence.
+- A player should read its own situation. For example, a runner that is
+  the deepest player on its team should stay deep.
+- Two defenders near the carrier should usually split: one tackles while
+  the other covers a receiver or drops back. At times both should go, or
+  both should hang back.
+
+Open tuning questions for Matt to judge on the phone:
+
+- **Push size.** A shoving pair moves about 1 unit, roughly 4 canvas
+  pixels. Doubling `SHOVE_SPEED` and halving `BALANCE_LOST_PER_UNIT`
+  doubles the push, and stretches the 90th-percentile contest from 6.1 s
+  to about 7 s.
+- **Pass rate.** Throws fell from 665 to 163 across ten matches when the
+  pass decision started to compare ground. Matt has not yet watched this
+  rate.
+
+To measure a change, play seeds 1–10 to full time in a throwaway Vitest
+file under `src/sim/`, count events by comparing `match.ball` before and
+after each `step`, and write the counts with `process.stderr.write`. Vitest
+hides `console.log` in this repo. Delete the file before committing.
 
 ## Approach
 
@@ -48,8 +84,9 @@ seed produces at least one score). The cost is that the sim must never read
 the clock or `Math.random`.
 
 The sim is a fresh TypeScript design. It borrows two ideas from `legacy/`:
-the role table keyed by ball state, and the threat score for the pass
-decision. It does not port the steering, move-state or message-bus code.
+the role table keyed by ball state, and the threat score, which runners use
+to find open space. It does not port the steering, move-state or
+message-bus code.
 
 ### Pitch and match flow
 
@@ -71,7 +108,7 @@ prone for a few seconds, then stands up.
 |---|---|---|---|
 | Brawler | 5 | The line: runs ahead of the carrier and blocks the nearest opponent in its path | Pushes through the opposing line toward the carrier |
 | Runner | 3 | Finds open space toward the end zone as a pass target | Marks a receiver, and tackles a carrier who comes near |
-| Centre | 1 | Starts with the ball; runs, and passes when a runner is less threatened | Linebacker: goes for the carrier |
+| Centre | 1 | Starts with the ball; runs, and passes as any carrier does (see Pass) | Linebacker: goes for the carrier |
 | Back | 2 | Trails the carrier as a pass outlet | Safety: stays deep and tackles a carrier who breaks through |
 
 When the ball is loose, the nearest players on each team chase it. When it
@@ -109,6 +146,13 @@ drilled than it would under a shared job assignment.
   team, within reach of it as it passes may catch it, except in its first
   2 units of flight: a defender pressed against the carrier cannot block
   the throw as it leaves the hand. A throw nobody catches lands loose.
+- **When to pass.** The carrier compares the ground left to cover for
+  itself and for each runner or back. Ground left is the distance to the
+  line that remains when the first free opponent can reach the player. For
+  a receiver, it is measured from where the throw lands, and opponents get
+  the flight time as a head start. A carrier with a clear run keeps the
+  ball. Otherwise it throws if a receiver is left at least 5 units less to
+  cover and no opponent can reach the ball's path in time.
 
 ### Screen
 
@@ -129,14 +173,17 @@ Each slice is one PR in a worktree, shown on the phone before it merges.
 
 1. **Players run and score.** Merged as Bogdanovist/harpastum#2.
 2. **Roles, fights and passes.** Merged as Bogdanovist/harpastum#4.
-3. **11-a-side, and passes you can see.** The 100 × 50 pitch, eleven
-   players with the back role, the 2-unit catch-free release, and a larger
-   ball in the air drawn on an arc.
-4. **Shoving contests** in place of fights.
-5. **Players decide alone from the game state.** The possession state,
-   seeded tendencies per player, and a defence that keeps players deep.
+3. **11-a-side, and passes you can see.** Merged as
+   Bogdanovist/harpastum#5, with the ground-left pass decision.
+4. **Shoving contests** in place of fights. Merged as
+   Bogdanovist/harpastum#6.
+5. **Players decide alone from the game state.** Not started; see Resume
+   here.
 
-## Decisions (Matt, 2026-09-25)
+
+## Decisions (Matt)
+
+Undated decisions are from 2026-09-25.
 
 1. **Seeded, fixed-step sim separate from the screen.** Matches replay from
    a seed and are testable. Every random choice must go through the sim's
@@ -158,6 +205,9 @@ Each slice is one PR in a worktree, shown on the phone before it merges.
    double up or both hold back at times.
 9. **Passes cannot be caught in their first 2 units of flight**
    (2026-09-26).
+10. **A carrier passes on ground left to cover, not on danger alone**
+    (2026-09-26). Matt saw carriers pass to worse-placed players; under
+    the danger-only rule 72% of throws went backward.
 
 ## Out of scope
 
@@ -171,28 +221,8 @@ Each slice is one PR in a worktree, shown on the phone before it merges.
 
 ## Progress
 
-- 2026-09-25: slice 1 merged as Bogdanovist/harpastum#2 (`44f7c26`). Matt
-  watched it in the browser and waived the diff review, because the code is
-  prototype code. Across seeds 1–10 a match has 11 to 18 scores and about 90
-  fumbles, which Matt judged acceptable for a proof of concept. The red end
-  zone renders olive, because its tint blends with the grass. Matt will
-  tune the match in a later session.
-- 2026-09-26: slice 2 merged as Bogdanovist/harpastum#4 (`8af59f2`).
-  Across seeds 1–10 a match has 61 to 70 throws, of which 20 to 35 are
-  intercepted, 67 to 82 fights, and 12 to 31 fumbles. The end zones are now
-  opaque, so the red one reads red.
-- 2026-09-26: slice 3 raised as Bogdanovist/harpastum#5, not yet merged.
-  Across seeds 1–10 a match has 0 to 4 scores per team and 61 to 73
-  throws, of which about 29% are intercepted (about 40% in slice 2). Runners
-  on defence mark the nearest opposing runner goal-side; the table's
-  runner row records that.
-- 2026-09-26: Matt saw the 11-a-side build and found that carriers passed
-  to worse-placed players. The throw decision compared danger only, so 72%
-  of throws went backward. PR #5 now compares the ground each option leaves
-  to cover before an opponent can reach it. Across seeds 1–10 that gives 163
-  throws (was 665), 5 backward and 13 intercepted, and scores of 2–9 per
-  team.
-- 2026-09-26: slice 4 raised as Bogdanovist/harpastum#6, stacked on #5.
-  A contest lasts 3.0 s at the median and moves the pair 1.0 unit; about a
-  quarter end in a break-through. On merge, rename the glossary's Fight
-  entry to Shoving contest and point it at `resolveShoves`.
+- 2026-09-25: slice 1 merged as Bogdanovist/harpastum#2. Matt waived the
+  diff review for this project, because the code is prototype code; no
+  slice since has had one.
+- 2026-09-26: slice 2 merged as Bogdanovist/harpastum#4.
+- 2026-10-05: slices 3 and 4 merged as Bogdanovist/harpastum#5 and #6.

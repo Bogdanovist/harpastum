@@ -10,7 +10,7 @@ game, and its design is still open.
 
 ## Glossary
 
-**Match** — one game between two teams of five, from kickoff to full time,
+**Match** — one game between two teams of eleven, from kickoff to full time,
 fully set by its seed. *Currently:* `Match`, `createMatch` and `step` in
 `src/sim/match.ts`.
 
@@ -33,7 +33,7 @@ opponent's end zone scores. *Currently:* `END_ZONE_DEPTH` and
 `carried` ball in `src/sim/match.ts`.
 
 **Loose ball** — a ball that no player holds. The nearest players of each
-team chase it. *Currently:* the `loose` ball and `isLooseBallChaser` in
+team chase it. *Currently:* the `loose` ball and `isBallChaser` in
 `src/sim/match.ts`.
 
 **Tackle** — a strength contest, weighted by chance, when a player reaches the
@@ -47,26 +47,35 @@ nobody can pick it up for a moment. *Currently:* `resolveTackle` and
 **Knock-down** — a player lying on the ground for a few seconds, unable to
 act. *Currently:* `Player.downFor` in `src/sim/match.ts`.
 
-**Fight** — a short locked bout between two opposing players away from the
-ball, which ends with the loser knocked down. *Currently:* `startFights`,
-`resolveFights` and `Player.fight` in `src/sim/match.ts`.
+**Shoving contest** — two opposing players locked together away from the
+ball, pushing back and forth. The player whose balance runs out falls, and
+a defender that drives its blocker back far enough breaks free.
+*Currently:* `startShoves`, `resolveShoves` and `Player.shove` in
+`src/sim/match.ts`.
 
 **Pass** — a throw by the carrier in any direction, which a player of either
-team may catch. *Currently:* `throwIfThreatened`, `catchFlyingBall` and the
-`flying` ball in `src/sim/match.ts`.
+team may catch. Nobody can catch it in its first 2 units of flight.
+*Currently:* `throwIfBetterPlaced`, `catchFlyingBall` and the `flying` ball
+in `src/sim/match.ts`.
 
-**Role** — a player's job on the team: brawler (fights and blocks), runner
-(pass target, and deep safety on defence) or centre (starts with the ball;
-linebacker on defence). *Currently:* `Role` and `ROLE_PROFILES` in
+**Ground left** — the distance to the opponent's end zone that a player
+still has to cover when the first free opponent can reach it. Zero means a
+clear run. The carrier passes on it. *Currently:* `groundLeft` and
+`catchUpTime` in `src/sim/match.ts`.
+
+**Role** — a player's job on the team: brawler (the line: blocks, and
+pushes through on defence), runner (pass target; marks a receiver on
+defence), centre (starts with the ball; linebacker on defence) or back
+(pass outlet; deep safety on defence). *Currently:* `Role` and `ROLE_PROFILES` in
 `src/sim/match.ts`.
 
 **Role table** — for each role, the behaviour to follow in each state of the
 ball: loose, in the air, carried by own team, carried by the opponent.
 *Currently:* `chooseTarget` in `src/sim/match.ts`.
 
-**Threat score** — how badly opponents endanger a player, used by the carrier
-to decide whether to pass. *Currently:* `threatAt` in `src/sim/match.ts`,
-adapted from `legacy/Threat.py`.
+**Threat score** — how badly opponents endanger a spot, used by runners to
+pick open space. *Currently:* `threatAt` in `src/sim/match.ts`, adapted from
+`legacy/Threat.py`.
 
 **Legacy match AI** — the 2013 Python attempt at the match simulation, kept
 unchanged as a design reference. It does not run. *Currently:* `legacy/`.
